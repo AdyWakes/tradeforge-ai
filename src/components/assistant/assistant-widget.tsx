@@ -1,6 +1,6 @@
 "use client";
 
-import { FormEvent, useState } from "react";
+import { FormEvent, useEffect, useRef, useState } from "react";
 import { Bot, Send, X } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
@@ -11,6 +11,13 @@ type Message = {
   content: string;
 };
 
+const suggestedQuestions = [
+  "What is TradeForge AI for?",
+  "Which invoice is riskiest?",
+  "Which invoices are finance-ready?",
+  "Explain Polygon verification"
+];
+
 export function AssistantWidget() {
   const [open, setOpen] = useState(false);
   const [input, setInput] = useState("");
@@ -18,32 +25,59 @@ export function AssistantWidget() {
     {
       role: "assistant",
       content:
-        "Ask me about invoice risk, financing readiness, escrow status, or Polygon verification."
+        "I can inspect the demo workspace, explain invoice risk, compare financing candidates, summarize escrow status, and describe Polygon verification."
     }
   ]);
   const [loading, setLoading] = useState(false);
+  const scrollRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (!open) return;
+    scrollRef.current?.scrollIntoView({ block: "end" });
+  }, [loading, messages, open]);
 
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    const trimmed = input.trim();
+    await sendMessage(input);
+  }
+
+  async function sendMessage(message: string) {
+    const trimmed = message.trim();
     if (!trimmed) return;
 
     setInput("");
     setLoading(true);
     setMessages((current) => [...current, { role: "user", content: trimmed }]);
 
-    const response = await fetch("/api/assistant", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ message: trimmed })
-    });
-    const payload = (await response.json()) as { reply: string };
+    try {
+      const response = await fetch("/api/assistant", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ message: trimmed })
+      });
 
-    setMessages((current) => [
-      ...current,
-      { role: "assistant", content: payload.reply }
-    ]);
-    setLoading(false);
+      if (!response.ok) {
+        throw new Error("Assistant request failed");
+      }
+
+      const payload = (await response.json()) as { reply: string };
+
+      setMessages((current) => [
+        ...current,
+        { role: "assistant", content: payload.reply }
+      ]);
+    } catch {
+      setMessages((current) => [
+        ...current,
+        {
+          role: "assistant",
+          content:
+            "I could not reach the assistant service. Try again, or review the dashboard, invoice, fraud, blockchain, and escrow pages directly."
+        }
+      ]);
+    } finally {
+      setLoading(false);
+    }
   }
 
   return (
@@ -82,14 +116,30 @@ export function AssistantWidget() {
                 Analyzing trade context...
               </div>
             ) : null}
+            {messages.length === 1 ? (
+              <div className="grid gap-2">
+                {suggestedQuestions.map((question) => (
+                  <button
+                    key={question}
+                    type="button"
+                    onClick={() => sendMessage(question)}
+                    className="rounded-md border border-white/10 bg-white/[0.04] px-3 py-2 text-left text-xs text-slate-200 transition hover:border-primary/50 hover:bg-primary/10"
+                  >
+                    {question}
+                  </button>
+                ))}
+              </div>
+            ) : null}
+            <div ref={scrollRef} />
           </div>
           <form onSubmit={handleSubmit} className="flex gap-2 border-t border-white/10 p-4">
             <Input
               value={input}
               onChange={(event) => setInput(event.target.value)}
-              placeholder="Ask about risk or financing..."
+              disabled={loading}
+              placeholder="Ask about risk, financing, or an invoice..."
             />
-            <Button size="icon" aria-label="Send message">
+            <Button size="icon" aria-label="Send message" disabled={loading}>
               <Send className="h-4 w-4" />
             </Button>
           </form>
